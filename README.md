@@ -1,123 +1,129 @@
-# Evaluating Adversarial Attacks on ImageNet Classifiers (ResNet-34 & DenseNet-121)
+# Adversarial Attacks on ImageNet Classifiers
 
-This repository contains the code and resources for the project "Evaluating and Enhancing Adversarial Attacks on Deep Neural Network Image Classifiers." The project focuses on implementing various adversarial attack strategies against pre-trained image classification models (**ResNet-34** and **DenseNet-121**) on a subset of the ImageNet-1K dataset.
+How fragile is a production-grade image classifier? This project answers that empirically, driving a pretrained **ResNet-34** from **77.40% to 0.00% top-1 accuracy** with perturbations bounded so tightly they are invisible to the eye, then testing whether those same perturbations fool a completely different architecture.
 
-## Project Overview
+## The Setup
 
-The primary goal of this project is to "jailbreak" deep learning models by launching effective adversarial attacks to degrade their performance on image classification tasks. We explore the brittleness of these models by crafting subtle, often imperceptible, perturbations to input images that lead to misclassifications.
+**Target model:** ResNet-34, pretrained on ImageNet-1K.
+**Transfer model:** DenseNet-121, never used to craft any attack.
+**Data:** a 500-image, 100-class subset of ImageNet-1K.
 
-We implemented and evaluated the following adversarial attacks:
-* **Fast Gradient Sign Method (FGSM)**: A single-step $L_{\infty}$ attack.
-* **Projected Gradient Descent (PGD)**: A strong iterative $L_{\infty}$ attack.
-* **Momentum Iterative FGSM (MI-FGSM)**: An iterative attack incorporating momentum for enhanced effectiveness and transferability.
-* **Patch Attack**: A localized $L_0$ attack perturbing a small 32x32 region of the image.
+| Model | Top-1 | Top-5 |
+| --- | --- | --- |
+| ResNet-34 (target) | 77.40% | 93.00% |
+| DenseNet-121 (transfer) | 74.00% | 92.60% |
 
-The attacks were primarily targeted against a **ResNet-34** model, and their transferability was assessed on a **DenseNet-121** model.
+Four attacks were implemented from scratch, three constrained to an L-infinity budget of **epsilon = 0.02** and one localised attack constrained by area instead.
 
-## Key Findings
+## Attacks
 
-* **Baseline Performance (ResNet-34 on Clean Data)**:
-    * Top-1 Accuracy: 77.40%
-    * Top-5 Accuracy: 93.00%
-* **Attack Efficacy on ResNet-34**:
-    * FGSM ($\epsilon=0.02$): Top-1 3.40%, Top-5 20.80% 
-    * PGD ($\epsilon=0.02$): Top-1 0.00%, Top-5 24.60%
-    * MI-FGSM ($\epsilon=0.02$): Top-1 0.20%, Top-5 28.60%
-    * Patch Attack (32x32, $\epsilon=0.8$): Top-1 12.00%, Top-5 49.40%
-* **Transferability to DenseNet-121 (Baseline: Top-1 74.00%, Top-5 92.60%)**:
-    * FGSM Adversarial: Top-1 45.60%, Top-5 75.20%
-    * PGD Adversarial: Top-1 66.40%, Top-5 91.20%
-    * Patch Adversarial: Top-1 67.00%, Top-5 92.00%
-* Iterative attacks (PGD, MI-FGSM) were most damaging to the source model.
-* Patch attacks demonstrated notable transferability.
-* FGSM attacks also showed good transferability despite being simpler.
+**FGSM**, single-step. Takes one step of size epsilon in the direction of the loss gradient's sign. One forward and backward pass per image.
 
-For detailed results and discussion, please refer to our project report.
+**PGD**, iterative. Ten steps of size 0.005, projecting back inside the epsilon-ball after each step. Effectively FGSM applied repeatedly with correction.
 
-## Code Implementation
+**MI-FGSM**, iterative with momentum. Accumulates a decaying average of past gradients (decay 0.9) with L1 normalisation at each step, so the update direction stabilises across iterations instead of oscillating. Momentum is specifically intended to improve transferability.
 
-The core implementation can be found in the `Deep_Learning_Project_3_Final.ipynb` Jupyter Notebook. The notebook covers the following main steps:
+**Patch attack**, localised. Abandons the imperceptibility constraint entirely: instead of a tiny change everywhere, it makes a large change (epsilon 0.8) inside a single 32x32 region. Uses 40 iterations, step size 0.05, and 5 random restarts across candidate patch locations.
 
-1.  **Setup**: Importing libraries, defining configurations (dataset paths, attack parameters), and setting up the device (CPU/GPU).
-2.  **Data Loading and Preprocessing**:
-    * Loading the ImageNet subset using `torchvision.datasets.ImageFolder`.
-    * Applying standard ImageNet normalization and transforms.
-    * Mapping dataset folder indices (WordNet IDs) to ImageNet class indices for accurate evaluation.
-3.  **Model Loading**:
-    * Loading pre-trained ResNet-34 (target model) and DenseNet-121 (transfer model) from `torchvision.models`.
-4.  **Helper Functions**:
-    * `calculate_accuracy_with_mapping` / `calculate_accuracy_adversarial`: For evaluating Top-1 and Top-5 accuracy.
-    * `visualize_multiple_examples`: For displaying original images, adversarial images, and perturbations.
-    * `get_prediction`: To get the top prediction for a single image.
-    * `calculate_linf_distance`: To measure $L_{\infty}$ distance.
-5.  **Task 1: Baseline Evaluation**: Evaluating ResNet-34 on the clean dataset.
-6.  **Task 2: FGSM Attack**:
-    * Implementation of `fgsm_attack` function.
-    * Generation of "Adversarial Test Set 1".
-    * Evaluation and visualization.
-7.  **Task 3: Improved Attacks (PGD & MI-FGSM)**:
-    * Implementation of `pgd_attack` function.
-    * Implementation of `mi_fgsm_attack` function.
-    * Generation of adversarial sets using PGD and MI-FGSM separately.
-    * Evaluation and visualization.
-8.  **Task 4: Patch Attack**:
-    * Implementation of `advanced_patch_attack` function (32x32 patch, $\epsilon=0.8$, strategic locations, multiple restarts).
-    * Generation of "Adversarial Test Set 3".
-    * Evaluation and visualization.
-9.  **Task 5: Transferring Attacks**:
-    * Evaluating the adversarial datasets (from FGSM, PGD, Patch) on DenseNet-121.
-    * Generating comparison plots for accuracies and transfer rates.
+## Results on the Target Model
 
-## Setup and Usage
+| Attack | Top-1 | Top-5 | Top-1 drop | Attack success rate | Generation time |
+| --- | --- | --- | --- | --- | --- |
+| None (baseline) | 77.40% | 93.00% | | | |
+| FGSM | 3.40% | 20.80% | 95.6% | 82.80% | 3.9s |
+| **PGD** | **0.00%** | 24.60% | **100%** | 77.40% | 49.9s |
+| MI-FGSM | 0.20% | 28.60% | 99.7% | 77.20% | 51.8s |
+| Patch | 12.00% | 49.40% | 84.5% | 65.40% | 925.4s |
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/your-username/DeepModel-AdversarialAttacks-ResNet-DenseNet.git](https://github.com/your-username/DeepModel-AdversarialAttacks-ResNet-DenseNet.git)
-    cd DeepModel-AdversarialAttacks-ResNet-DenseNet
-    ```
-2.  **Dataset**:
-    * Download the `TestDataSet` (subset of ImageNet-1K with 100 classes, 500 images, and `labels_list.json`) and place it in the root directory or update `dataset_path` in the notebook. The `labels_list.json` file contains the mapping from WordNet IDs to ImageNet class indices and human-readable names.
-3.  **Environment**:
-    * This project uses Python with standard data science and PyTorch libraries. Ensure you have a compatible environment. Key libraries include:
-        * `torch`
-        * `torchvision`
-        * `numpy`
-        * `matplotlib`
-        * `Pillow (PIL)`
-    * It is recommended to use a virtual environment:
-        ```bash
-        python -m venv venv
-        source venv/bin/activate  # On Linux/macOS
-        # venv\Scripts\activate    # On Windows
-        pip install torch torchvision numpy matplotlib Pillow jupyter
-        ```
-4.  **Run the Notebook**:
-    * Launch Jupyter Notebook or JupyterLab:
-        ```bash
-        jupyter notebook Deep_Learning_Project_3_Final.ipynb
-        ```
-    * Execute the cells in the notebook sequentially. The notebook is structured to perform each task, generate adversarial datasets (saved as `.pt` files for images and labels, or directly as images in specified folders), evaluate models, and visualize results. Note that paths for saving adversarial datasets (e.g., `/kaggle/working/`) might need adjustment based on your local setup.
+PGD reduces top-1 accuracy to **exactly zero across all 500 images** while every pixel stays within 0.02 of its original value, a change no human observer would notice. Measured L-infinity distance sits at precisely 0.020000, confirming the constraint binds.
 
-## Requirements
+The single-step FGSM gets 95.6% of the way there for **one twelfth** of PGD's compute, which is the practical argument for it despite being the weakest of the three.
 
-* Python 3.x
-* PyTorch
-* TorchVision
-* NumPy
-* Matplotlib
-* Pillow
+The patch attack is both the least effective and by far the most expensive, taking over 15 minutes because of its 40 iterations across 5 restarts per image. Its interest is not raw damage but that it operates under a fundamentally different threat model: a visible sticker rather than an invisible perturbation.
+
+## Transferability
+
+Each adversarial set was crafted against ResNet-34 only, then fed unchanged to DenseNet-121.
+
+| Adversarial set | DenseNet-121 Top-1 | Top-5 | Top-1 drop from its baseline |
+| --- | --- | --- | --- |
+| Original (clean) | 74.00% | 92.60% | |
+| **FGSM** | **45.60%** | 75.20% | **28.4 points** |
+| PGD | 66.40% | 91.20% | 7.6 points |
+| Patch | 67.00% | 92.00% | 7.0 points |
+
+### The finding
+
+**The ranking inverts.** PGD is the strongest attack on the model it was built against and the weakest when moved to another architecture. FGSM is the weakest on the source model and comfortably the best transferer, doing roughly **four times more damage** to DenseNet-121 than PGD does.
+
+The reason is overfitting. PGD's ten corrective steps let it find a perturbation exquisitely tuned to ResNet-34's specific decision boundary, and that precision is exactly what fails to generalise. FGSM's single crude step lands on coarser, more generic features that multiple architectures happen to share.
+
+This is the practical lesson of the project: **attack strength measured on a white-box target is a poor predictor of black-box effectiveness.** An adversary without access to the deployed model is better served by a simpler attack.
+
+PGD and patch attacks barely dent DenseNet-121, leaving it within 8 points of its clean baseline, so neither poses much of a black-box threat here.
+
+## Implementation
+
+The notebook works through five tasks in sequence:
+
+1. **Baseline evaluation.** Load the ImageNet subset via `ImageFolder`, map WordNet directory IDs to true ImageNet class indices, and establish clean accuracy for ResNet-34.
+2. **FGSM.** Implement the single-step attack and generate the first adversarial set.
+3. **PGD and MI-FGSM.** Implement both iterative attacks and generate a set from each.
+4. **Patch attack.** Implement the localised attack with restarts and generate the third set.
+5. **Transfer evaluation.** Run every adversarial set against DenseNet-121 and produce comparison plots.
+
+Supporting utilities cover top-1 and top-5 accuracy with index mapping, L-infinity distance measurement, single-image prediction, and side-by-side visualisation of original, adversarial, and amplified perturbation.
+
+All attacks operate in normalised image space using ImageNet channel statistics, so the epsilon budget is expressed in normalised units and the constraint is enforced against the tensor the model actually consumes.
+
+## Tech Stack
+
+- Python, PyTorch
+- torchvision (pretrained ResNet-34 and DenseNet-121, `ImageFolder`, transforms)
+- NumPy
+- Matplotlib
+- Pillow
+- Trained and evaluated on GPU via Kaggle Notebooks
+
+## Repository Contents
+
+```
+Deep_Learning_Project_3_Final.ipynb    Full implementation, all five tasks
+Deep_Learning_Project_3_Final.html     Rendered export with outputs
+Deep_Learning_Project_3_Final.pdf      PDF export
+DL_Project_3_Report.pdf                Written project report
+fgsm_visualization (1).png             FGSM originals, adversarials, perturbations
+PGD-VIZ.png                            PGD examples
+mi-fgsm viz.png                        MI-FGSM examples
+patch_visualization.png                Patch attack examples
+transferability_top1.png               Top-1 across models and attacks
+transferability_top5.png               Top-5 across models and attacks
+transfer_rates.png                     Relative transfer effectiveness
+```
+
+## Running It
+
+```bash
+git clone https://github.com/raunak-choudhary/DeepModel-AdversarialAttacks-ResNet-DenseNet.git
+cd DeepModel-AdversarialAttacks-ResNet-DenseNet
+
+python -m venv venv && source venv/bin/activate
+pip install torch torchvision numpy matplotlib Pillow jupyter
+
+jupyter notebook Deep_Learning_Project_3_Final.ipynb
+```
+
+**Dataset.** The notebook expects a `TestDataSet` directory holding the 500-image, 100-class ImageNet subset plus `labels_list.json`, which maps WordNet IDs to ImageNet class indices and readable names. It is not included here. Point `dataset_path` at your own copy.
+
+**Paths.** Adversarial sets are written to Kaggle working paths. Adjust these for a local run.
+
+Pretrained weights download automatically through torchvision. A GPU is recommended: the patch attack alone takes roughly 15 minutes across the 500 images.
 
 ## Authors
 
-* Raunak Choudhary
-* Sharayu Rasal
+- **Raunak Choudhary**
+- **Sharayu Rasal**
 
-## Acknowledgments
+Completed for a Deep Learning course at New York University. Pretrained models from torchvision; dataset derived from ImageNet-1K.
 
-* This project was undertaken as part of a Deep Learning course.
-* Utilized pre-trained models (ResNet-34, DenseNet-121) from TorchVision.
-* Dataset derived from ImageNet-1K.
-* Guidance provided by the course instructors.
-* Technical collaboration for report preparation: Anthropic Claude 3.7 Sonnet.
-
---------
+Report preparation was assisted by Anthropic Claude 3.7 Sonnet.
